@@ -32,6 +32,13 @@ import { setupRouterGuards } from './router/guards.js'
 import pinia from './store/index.js'
 
 // ============================================
+// 导入 Element Plus
+// ============================================
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+
+// ============================================
 // 导入全局样式
 // ============================================
 // 这里可以导入 Tailwind、Element Plus 样式或自定义 CSS
@@ -59,6 +66,20 @@ const app = createApp(App)
  * 因为守卫依赖 router 实例，而 use() 会初始化 router 的内部状态
  */
 app.use(router)
+
+// ============================================
+// 挂载 Element Plus
+// ============================================
+/**
+ * app.use(ElementPlus) 注册 Element Plus UI 库
+ * 这会自动注册所有 Element Plus 组件（el-button, el-icon 等）
+ */
+app.use(ElementPlus)
+
+// 注册所有 Element Plus 图标为全局组件
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component)
+}
 
 // ============================================
 // 挂载 Pinia Store
