@@ -1,126 +1,85 @@
-/**
- * ============================================
- * Vue Router 路由配置模块
- * ============================================
- * 
- * 设计思路：
- * 1. 本文件只负责定义路由表 (Route Records)，保持单一职责
- * 2. 路由守卫逻辑拆分到独立的 guards.js 文件，实现物理解耦
- * 3. 使用路由元信息 (meta) 标记需要鉴权的路由
- * 
- * 底层原理：
- * - Vue Router 4 采用组合式 API 设计，与 Vue 3 风格一致
- * - createRouter 创建路由实例，createWebHistory 使用 HTML5 History 模式
- * - 路由匹配采用深度优先搜索算法
- */
 
 import { createRouter, createWebHistory } from 'vue-router'
 
-// ============================================
-// 路由表定义
-// ============================================
-// 每个路由记录 (Route Record) 包含以下核心字段：
-// - path: URL 路径（支持动态参数，如 /user/:id）
-// - name: 路由名称，用于编程式导航（推荐做法，比 path 更稳定）
-// - component: 路由对应的页面组件
-// - meta: 路由元信息，可自定义任意字段，常用于权限控制、页面标题等
-// - children: 嵌套路由，用于布局嵌套场景
-
 const routes = [
-  /**
-   * 舆情大屏首页
-   * 
-   * 访问路径：/
-   * 特点：公开访问，不需要登录
-   * 用途：系统的核心展示页面，展示实时热搜榜单、词云、趋势图等
-   */
-  {
-    path: '/',
-    name: 'Dashboard',
-    // 动态导入 (Lazy Loading)：用户访问时才加载组件，减少首屏包体积
-    // () => import() 返回一个 Promise，Vue Router 会自动处理加载状态
-    component: () => import('@/views/dashboard/index.vue'),
-    meta: {
-      // title: 页面标题，可用于浏览器标签页或导航栏显示
-      title: '舆情大屏',
-      // requiresAuth: 是否需要登录才能访问，false 表示公开页面
-      requiresAuth: false
-    }
-  },
-  
-  /**
-   * 登录页
-   *
-   * 访问路径：/auth/login
-   * 特点：公开访问，已登录用户通常不需要再访问
-   * 用途：用户输入账号密码，获取 JWT Token
-   *
-   * 为什么路径是 /auth/login 而不是 /login？
-   * - /auth 作为前缀，便于统一管理认证相关路由
-   * - 后续可扩展 /auth/register、/auth/forgot-password 等
-   */
+  // ================= 1. 独立页面 (不需要左侧菜单的页面) =================
   {
     path: '/auth/login',
     name: 'Login',
-    component: () => import('@/views/auth/login.vue'),
-    meta: {
-      title: '用户登录',
-      requiresAuth: false
-    }
+    component: () => import('@/views/auth/Login.vue')
   },
 
-  /**
-   * 注册页
-   *
-   * 访问路径：/auth/register
-   * 特点：公开访问，与登录页同级
-   * 用途：新用户注册账号
-   */
+  // ================= 2. 核心业务模块 (基于 Layout 骨架) =================
   {
-    path: '/auth/register',
-    name: 'Register',
-    component: () => import('@/views/auth/register.vue'),
-    meta: {
-      title: '用户注册',
-      requiresAuth: false
-    }
-  },
-  
-  /**
-   * 个人中心页
-   * 
-   * 访问路径：/profile/index
-   * 特点：需要登录才能访问（requiresAuth: true）
-   * 用途：展示用户信息、收藏记录、个人设置等
-   * 
-   * 路由守卫会检查 meta.requiresAuth，如果没有 Token 会拦截并重定向到登录页
-   */
-  {
-    path: '/profile/index',
-    name: 'Profile',
-    component: () => import('@/views/profile/index.vue'),
-    meta: {
-      title: '个人中心',
-      // requiresAuth: true 表示需要登录才能访问
-      // 路由守卫会读取这个标记进行权限校验
-      requiresAuth: true
-    }
-  },
-  
-  /**
-   * 404 页面 - 捕获所有未匹配的路由
-   * 
-   * 访问路径：任意未定义的路径
-   * pathMatch(.*)* 是 Vue Router 4 的通配符语法，匹配所有路径
-   */
-  {
-    path: '/:pathMatch(.*)*',
-    name: 'NotFound',
-    component: () => import('@/views/error/404.vue'),
-    meta: {
-      title: '页面未找到',
-      requiresAuth: false
-    }
+    path: '/',
+    component: () => import('@/views/dashboard/index.vue'), // 这是核心骨架组件！包含左侧导航和右侧插槽
+    redirect: '/platform/weibo', // 默认打开平台栏目的微博页面
+    children: [
+      // 栏目 1：搜索
+      {
+        path: 'search',
+        name: 'Search',
+        component: () => import('@/views/search/index.vue'),
+        // 搜索参数通过 URL Query 传递，例如：/search?keyword=xxx&type=comment&category=finance
+        meta: {
+          title: '搜索',
+          requiresAuth: true
+        }
+      },
+      // 栏目 2：平台 (依然使用动态路由复用组件)
+      {
+        path: 'platform/:source', // source 可以是 weibo, zhihu, baidu
+        name: 'PlatformDashboard',
+        component: () => import('@/views/platform/index.vue'),
+        meta: {
+          title: '平台概览',
+          requiresAuth: true
+        }
+      },
+
+      // 栏目 3：对比 (展开项，拆分为两个独立视图)
+      {
+        path: 'compare/single',
+        name: 'CompareSingle',
+        component: () => import('@/views/compare/SinglePlatform.vue'), // 同平台对比
+        meta: {
+          title: '平台对比',
+          requiresAuth: true
+        }
+      },
+      {
+        path: 'compare/multi',
+        name: 'CompareMulti',
+        component: () => import('@/views/compare/MultiPlatform.vue'), // 多平台对比
+        meta: {
+          title: '多平台对比',
+          requiresAuth: true
+        }
+      },
+
+      // 栏目 4：设置
+      {
+        path: 'settings',
+        name: 'Settings',
+        component: () => import('@/views/settings/index.vue'),
+        meta: {
+          title: '设置',
+          requiresAuth: true
+        }
+      },
+
+      // 其他核心业务页面可以继续添加在这里，保持路由结构清晰
+            {
+        path: 'test',
+        name: 'test',
+        component: () => import('@/views/auth/Login.vue'),
+        redirect: '/test',
+        meta: {
+          title: '测试页面',
+          requiresAuth: true
+        }
+      }
+    ]
   }
 ]
 
