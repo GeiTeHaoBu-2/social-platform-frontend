@@ -12,9 +12,20 @@ const routes = [
   // ================= 2. 核心业务模块 (基于 Layout 骨架) =================
   {
     path: '/',
-    component: () => import('@/components/layout/Applayout.vue'), // 这是核心骨架组件！包含左侧导航和右侧插槽
-    redirect: '/platform/weibo', // 默认打开平台栏目的微博页面
+    component: () => import('@/layout/AppLayout.vue'), // Layout 骨架组件！包含左侧导航和右侧 <router-view>
+    redirect: '/dashboard', // 默认重定向到数据首页
     children: [
+      // 栏目 0：数据首页（总览）
+      {
+        path: 'dashboard',
+        name: 'Dashboard',
+        component: () => import('@/views/dashboard/index.vue'),
+        meta: {
+          title: '数据首页',
+          requiresAuth: true
+        }
+      },
+
       // 栏目 1：搜索
       {
         path: 'search',
@@ -68,8 +79,19 @@ const routes = [
         }
       },
 
+      // 栏目 5：个人资料
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/profile/index.vue'),
+        meta: {
+          title: '个人资料',
+          requiresAuth: true
+        }
+      },
+
       // 其他核心业务页面可以继续添加在这里，保持路由结构清晰
-            {
+      {
         path: 'test',
         name: 'test',
         component: () => import('@/views/auth/Login.vue'),
@@ -80,6 +102,13 @@ const routes = [
         }
       }
     ]
+  },
+
+  // ================= 3. 404 页面 =================
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/views/error/404.vue')
   }
 ]
 

@@ -3,17 +3,13 @@
   应用根组件 (App.vue)
   ============================================
   
-  当前使用 AppLayout 作为主布局框架
-  包含：顶部栏 + 可折叠侧边栏 + 主内容区
+  根组件仅作为路由的挂载点
+  实际布局由路由配置中的 AppLayout.vue 提供
 -->
 
-<script setup>
-import AppLayout from '@/components/layout/AppLayout.vue'
-</script>
-
 <template>
-  <!-- 使用新的布局组件 -->
-  <AppLayout />
+  <!-- 路由视图：根据当前路径渲染对应组件 -->
+  <router-view />
 </template>
 
 <style>
