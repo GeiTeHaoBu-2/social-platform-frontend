@@ -12,7 +12,7 @@ const routes = [
   // ================= 2. 核心业务模块 (基于 Layout 骨架) =================
   {
     path: '/',
-    component: () => import('@/views/dashboard/index.vue'), // 这是核心骨架组件！包含左侧导航和右侧插槽
+    component: () => import('@/components/layout/Applayout.vue'), // 这是核心骨架组件！包含左侧导航和右侧插槽
     redirect: '/platform/weibo', // 默认打开平台栏目的微博页面
     children: [
       // 栏目 1：搜索
