@@ -1,4 +1,4 @@
-<!--
+ <!--
   ============================================
   平台数据看板 (Platform Dashboard)
   ============================================
@@ -8,13 +8,15 @@
   功能概述：
   1. 动态路由监听：根据 URL 参数切换平台数据
   2. 真实 API 数据：对接后端热搜接口
-  3. 响应式布局：左侧榜单 + 右侧图表占位
+  3. 响应式布局：左侧榜单 + 右侧图表
+  4. 趋势图表：点击热搜显示热度/排名趋势，支持时间维度切换
   
   技术要点：
   - useRoute: 获取动态路由参数
   - watch: 监听路由变化重新加载数据
   - onMounted: 页面挂载时首次加载
   - API 数据映射：将后端返回格式转换为组件展示格式
+  - ECharts: 趋势数据可视化
 -->
 
 <script setup>
@@ -23,13 +25,13 @@
 // ============================================
 
 // Vue 核心 API：响应式数据、生命周期、监听器
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onUnmounted, nextTick } from 'vue'
 
 // Vue Router：获取当前路由信息，用于读取动态参数
 import { useRoute } from 'vue-router'
 
 // Element Plus 图标组件
-import { 
+import {
   TrendCharts,    // 趋势图表图标
   DataAnalysis,   // 数据分析图标
   HotWater,       // 热度图标
@@ -37,7 +39,14 @@ import {
 } from '@element-plus/icons-vue'
 
 // 真实 API 接口
-import { getCurrentHotSearchApi, getHotSearchTrendApi } from '@/api/hotsearch.js'
+import { getCurrentHotSearchApi, getHotSearchTrendApi, getWordCloudApi, getSentimentStatsApi } from '@/api/hotsearch.js'
+
+// ECharts 导入
+import * as echarts from 'echarts'
+
+// 图表组件
+import WordCloud from '@/components/charts/WordCloud.vue'
+import SentimentChart from '@/components/charts/SentimentChart.vue'
 
 // ============================================
 // 2. 获取路由实例
@@ -57,6 +66,11 @@ const route = useRoute()
 const loading = ref(false)
 
 /**
+ * 图表加载状态
+ */
+const chartLoading = ref(false)
+
+/**
  * 热搜榜单数据
  * 每条记录包含：排名、标题、热度值、情感倾向
  * 使用 ref 包装使其具备响应式特性
@@ -64,14 +78,39 @@ const loading = ref(false)
 const hotListData = ref([])
 
 /**
- * 图表数据占位
- * 后续接入 ECharts 时使用
+ * 当前选中的热搜
+ * 用于显示趋势图表
  */
-const chartData = ref({
-  trend: [],    // 趋势图数据
-  wordCloud: [], // 词云数据
-  sentiment: []  // 情感分布数据
-})
+const selectedHotItem = ref(null)
+
+/**
+ * 时间范围选择（1天/1周）
+ * '1d' = 1天, '1w' = 1周
+ */
+const timeRange = ref('1d')
+
+/**
+ * 图表指标类型（热度/排名）
+ * 'heat' = 热度, 'rank' = 排名
+ */
+const metricType = ref('heat')
+
+/**
+ * 趋势图表数据
+ */
+const trendData = ref([])
+
+/**
+ * 词云图表数据
+ */
+const wordCloudData = ref([])
+const wordCloudLoading = ref(false)
+
+/**
+ * 情感分布数据
+ */
+const sentimentData = ref({ positive: 0, neutral: 0, negative: 0 })
+const sentimentLoading = ref(false)
 
 /**
  * 当前平台名称（用于显示）
@@ -88,6 +127,12 @@ const platformNames = {
   baidu: '百度',
   toutiao: '今日头条'
 }
+
+/**
+ * ECharts 实例
+ */
+let trendChartInstance = null
+const trendChartRef = ref(null)
 
 // ============================================
 // 4. 数据加载逻辑（对接真实 API）
@@ -136,6 +181,11 @@ async function loadData(source) {
         itemId: item.itemId,          // 唯一标识（用于后续查询趋势）
         url: item.url                 // 链接
       }))
+      
+      // 默认选中第一个热搜
+      if (hotListData.value.length > 0 && !selectedHotItem.value) {
+        handleRowClick(hotListData.value[0])
+      }
     } else {
       // 数据格式异常，使用空数组
       console.warn('API 返回数据格式异常:', response)
@@ -149,6 +199,111 @@ async function loadData(source) {
   } finally {
     // 无论成功失败，都关闭 loading 状态
     loading.value = false
+  }
+}
+
+/**
+ * 获取趋势数据
+ * 调用 API 获取指定热搜的趋势数据
+ * 
+ * @param {string} title - 热搜标题
+ */
+async function loadTrendData(title) {
+  if (!title) return
+  
+  chartLoading.value = true
+  
+  try {
+    const response = await getHotSearchTrendApi({ title })
+    
+    if (Array.isArray(response) && response.length > 0) {
+      // 根据时间范围过滤数据
+      const now = new Date()
+      let startTime = new Date()
+      
+      if (timeRange.value === '1d') {
+        // 1天前
+        startTime.setDate(now.getDate() - 1)
+      } else {
+        // 1周前
+        startTime.setDate(now.getDate() - 7)
+      }
+      
+      // 过滤并排序数据
+      trendData.value = response
+        .filter(item => new Date(item.eventTime) >= startTime)
+        .sort((a, b) => new Date(a.eventTime) - new Date(b.eventTime))
+      
+      // 关闭 loading 后再初始化图表
+      chartLoading.value = false
+      
+      // 更新图表
+      await nextTick()
+      initOrUpdateChart()
+    } else {
+      console.warn('API 返回数据为空或格式不正确:', response)
+      trendData.value = []
+      chartLoading.value = false
+    }
+  } catch (error) {
+    console.error('获取趋势数据失败:', error)
+    trendData.value = []
+    chartLoading.value = false
+  }
+}
+
+/**
+ * 获取词云数据
+ * @param {string} title - 热搜标题
+ */
+async function loadWordCloudData(title) {
+  if (!title) return
+  
+  wordCloudLoading.value = true
+  try {
+    const response = await getWordCloudApi({ title })
+    
+    if (Array.isArray(response)) {
+      wordCloudData.value = response.map(item => ({
+        name: item.word || item.name,
+        value: item.weight || item.value || item.count
+      }))
+    } else {
+      wordCloudData.value = []
+    }
+  } catch (error) {
+    console.error('获取词云数据失败:', error)
+    wordCloudData.value = []
+  } finally {
+    wordCloudLoading.value = false
+  }
+}
+
+/**
+ * 获取情感分布数据
+ * @param {string} title - 热搜标题
+ */
+async function loadSentimentData(title) {
+  if (!title) return
+  
+  sentimentLoading.value = true
+  try {
+    const response = await getSentimentStatsApi({ title })
+    
+    if (response && typeof response === 'object') {
+      sentimentData.value = {
+        positive: response.positiveCount || 0,
+        neutral: response.neutralCount || 0,
+        negative: response.negativeCount || 0
+      }
+    } else {
+      sentimentData.value = { positive: 0, neutral: 0, negative: 0 }
+    }
+  } catch (error) {
+    console.error('获取情感数据失败:', error)
+    sentimentData.value = { positive: 0, neutral: 0, negative: 0 }
+  } finally {
+    sentimentLoading.value = false
   }
 }
 
@@ -173,7 +328,225 @@ function mapScoreToSentiment(score) {
 }
 
 // ============================================
-// 5. 生命周期钩子与路由监听
+// 5. ECharts 图表相关
+// ============================================
+
+/**
+ * 初始化或更新趋势图表
+ */
+function initOrUpdateChart() {
+  if (!trendChartRef.value) return
+  
+  // 如果没有数据，显示空状态
+  if (trendData.value.length === 0) {
+    if (trendChartInstance) {
+      trendChartInstance.dispose()
+      trendChartInstance = null
+    }
+    return
+  }
+  
+  // 初始化 ECharts 实例
+  if (!trendChartInstance) {
+    trendChartInstance = echarts.init(trendChartRef.value)
+    
+    // 监听窗口大小变化，自适应调整
+    window.addEventListener('resize', handleResize)
+  }
+  
+  // 准备图表数据
+  const xData = trendData.value.map(item => {
+    const date = new Date(item.eventTime)
+    return timeRange.value === '1d'
+      ? `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+      : `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:00`
+  })
+  
+  const yData = trendData.value.map(item =>
+    metricType.value === 'heat' ? item.hotCount : item.rank
+  )
+  
+  // 图表颜色配置
+  const lineColor = metricType.value === 'heat' ? '#f97316' : '#8b5cf6'
+  const areaColor = metricType.value === 'heat' 
+    ? new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: 'rgba(249, 115, 22, 0.3)' },
+        { offset: 1, color: 'rgba(249, 115, 22, 0.05)' }
+      ])
+    : new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: 'rgba(139, 92, 246, 0.3)' },
+        { offset: 1, color: 'rgba(139, 92, 246, 0.05)' }
+      ])
+  
+  const option = {
+    backgroundColor: 'transparent',
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      top: '15%',
+      containLabel: true
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(36, 36, 36, 0.95)',
+      borderColor: '#4b5563',
+      borderWidth: 1,
+      textStyle: {
+        color: '#e5e7eb'
+      },
+      formatter: function(params) {
+        const data = trendData.value[params[0].dataIndex]
+        const time = new Date(data.eventTime).toLocaleString('zh-CN')
+        const value = params[0].value
+        const metricName = metricType.value === 'heat' ? '热度' : '排名'
+        return `<div style="font-weight: bold; margin-bottom: 5px;">${time}</div>
+                <div>${metricName}: <span style="color: ${lineColor}; font-weight: bold;">${value}</span></div>`
+      }
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: xData,
+      axisLine: {
+        lineStyle: { color: '#4b5563' }
+      },
+      axisLabel: {
+        color: '#9ca3af',
+        fontSize: 11
+      },
+      axisTick: {
+        show: false
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: metricType.value === 'heat' ? '热度' : '排名',
+      nameLocation: 'end',
+      nameGap: 8,
+      nameTextStyle: {
+        color: '#9ca3af',
+        fontSize: 12,
+        align: 'left',
+        padding: [0, 0, 0, -25]
+      },
+      axisLine: {
+        show: false
+      },
+      axisLabel: {
+        color: '#9ca3af',
+        fontSize: 11,
+        formatter: metricType.value === 'rank' ? '{value}' : '{value}'
+      },
+      // 排名模式：只显示整数
+      minInterval: metricType.value === 'rank' ? 1 : 0,
+      splitLine: {
+        lineStyle: {
+          color: '#374151',
+          type: 'dashed'
+        }
+      },
+      // 排名是倒序的，第一名在最上面
+      inverse: metricType.value === 'rank'
+    },
+    series: [
+      {
+        name: metricType.value === 'heat' ? '热度' : '排名',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        sampling: 'average',
+        itemStyle: {
+          color: lineColor
+        },
+        lineStyle: {
+          width: 3,
+          color: lineColor
+        },
+        areaStyle: {
+          color: areaColor
+        },
+        data: yData,
+        animationDuration: 1000,
+        animationEasing: 'cubicOut'
+      }
+    ]
+  }
+  
+  trendChartInstance.setOption(option, true)
+}
+
+/**
+ * 窗口大小变化处理
+ */
+function handleResize() {
+  if (trendChartInstance) {
+    trendChartInstance.resize()
+  }
+}
+
+// ============================================
+// 6. 交互处理函数
+// ============================================
+
+/**
+ * 处理表格行点击事件
+ * 点击热搜后加载对应的趋势数据
+ * 
+ * @param {Object} row - 点击的行数据
+ */
+function handleRowClick(row) {
+  selectedHotItem.value = row
+  loadTrendData(row.title)
+  loadWordCloudData(row.title)
+  loadSentimentData(row.title)
+}
+
+/**
+ * 处理词云点击事件
+ * @param {Object} wordData - 点击的词数据
+ */
+function handleWordClick(wordData) {
+  console.log('点击词云:', wordData)
+  // 可以在这里添加跳转或筛选逻辑
+}
+
+/**
+ * 处理情感分布点击事件
+ * @param {Object} sentimentData - 点击的情感数据
+ */
+function handleSentimentClick(sentimentData) {
+  console.log('点击情感分布:', sentimentData)
+  // 可以在这里添加筛选逻辑
+}
+
+/**
+ * 处理时间范围切换
+ * 
+ * @param {string} range - '1d' 或 '1w'
+ */
+function handleTimeRangeChange(range) {
+  timeRange.value = range
+  if (selectedHotItem.value) {
+    loadTrendData(selectedHotItem.value.title)
+  }
+}
+
+/**
+ * 处理指标类型切换
+ * 
+ * @param {string} type - 'heat' 或 'rank'
+ */
+function handleMetricChange(type) {
+  metricType.value = type
+  nextTick(() => {
+    initOrUpdateChart()
+  })
+}
+
+// ============================================
+// 7. 生命周期钩子与路由监听
 // ============================================
 
 /**
@@ -187,6 +560,19 @@ onMounted(() => {
   // 组件首次加载时，获取当前路由参数并加载对应数据
   const source = route.params.source
   loadData(source)
+})
+
+/**
+ * onUnmounted：组件卸载时清理
+ */
+onUnmounted(() => {
+  // 销毁 ECharts 实例
+  if (trendChartInstance) {
+    trendChartInstance.dispose()
+    trendChartInstance = null
+  }
+  // 移除事件监听
+  window.removeEventListener('resize', handleResize)
 })
 
 /**
@@ -210,13 +596,16 @@ watch(
   // newSource 是变化后的新值，oldSource 是变化前的旧值
   async (newSource, oldSource) => {
     console.log(`平台切换: ${oldSource} -> ${newSource}`)
+    // 重置选中状态
+    selectedHotItem.value = null
+    trendData.value = []
     // 调用 loadData 重新加载新平台的数据
     await loadData(newSource)
   }
 )
 
 // ============================================
-// 6. 辅助工具函数
+// 8. 辅助工具函数
 // ============================================
 
 /**
@@ -293,10 +682,10 @@ function getTypeTagType(typeName) {
     '体育': 'success',
     '社会': 'info',
     '民生': 'info',
-    '国际': '',
-    '国内': ''
+    '国际': 'info',
+    '国内': 'info'
   }
-  return typeMap[typeName] || ''
+  return typeMap[typeName] || 'info'
 }
 
 /**
@@ -403,16 +792,20 @@ async function handleRefresh() {
               stripe 启用斑马纹
               size="small" 紧凑尺寸
               v-loading 绑定 loading 状态
+              highlight-current-row 高亮当前选中行
+              @row-click 行点击事件
             -->
             <el-table
               :data="hotListData"
               stripe
               size="small"
               class="platform-table"
-              row-class-name="hover:bg-[#2a2a2a]"
+              row-class-name="cursor-pointer"
+              highlight-current-row
               v-loading="loading"
               element-loading-text="加载中..."
               element-loading-background="rgba(26, 26, 26, 0.8)"
+              @row-click="handleRowClick"
             >
               <!-- 排名列 -->
               <el-table-column label="排名" width="70" align="center">
@@ -493,7 +886,7 @@ async function handleRefresh() {
       
       <!-- 
         ============================================
-        右侧区域：图表占位区（约占 65%）
+        右侧区域：图表区（约占 65%）
         使用 flex-[65] 设置 flex-grow 比例为 65
         内部垂直分布两个模块
         ============================================
@@ -502,34 +895,51 @@ async function handleRefresh() {
         
         <!-- 
           ============================================
-          右上：热度趋势图表占位
+          右上：热度/排名趋势图表
           h-[400px] 固定高度 400px
           ============================================
         -->
         <div class="h-[400px] bg-[#242424] rounded-xl border border-gray-700 flex flex-col">
           <!-- 模块头部 -->
-          <div class="px-4 py-3 border-b border-gray-700">
+          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
             <h2 class="font-semibold text-white flex items-center gap-2">
               <el-icon class="text-blue-500">
                 <TrendCharts />
               </el-icon>
-              热度趋势分析
+              {{ selectedHotItem ? `「${selectedHotItem.title}」` : '' }}趋势分析
             </h2>
+            <!-- 图表控制按钮组 -->
+            <div class="flex items-center gap-2">
+              <!-- 时间范围选择 -->
+              <el-radio-group v-model="timeRange" size="small" @change="handleTimeRangeChange">
+                <el-radio-button label="1d">1天内</el-radio-button>
+                <el-radio-button label="1w">1周内</el-radio-button>
+              </el-radio-group>
+              <!-- 指标类型切换 -->
+              <el-radio-group v-model="metricType" size="small" @change="handleMetricChange">
+                <el-radio-button label="heat">热度</el-radio-button>
+                <el-radio-button label="rank">排名</el-radio-button>
+              </el-radio-group>
+            </div>
           </div>
-          <!-- 图表占位区域 -->
-          <div class="flex-1 flex items-center justify-center">
-            <!-- 
-              占位符样式：
-              - 虚线边框：border-dashed border-2
-              - 圆角：rounded-lg
-              - 背景色：bg-[#1a1a1a]
-              - 文字居中显示
-            -->
-            <div class="w-[90%] h-[85%] border-2 border-dashed border-gray-600 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
-              <div class="text-center">
+          <!-- 图表容器区域 -->
+          <div class="flex-1 relative">
+            <!-- ECharts 图表容器 -->
+            <div 
+              ref="trendChartRef" 
+              class="w-full h-full"
+              v-loading="chartLoading"
+              element-loading-text="加载中..."
+              element-loading-background="rgba(26, 26, 26, 0.8)"
+            ></div>
+            <!-- 空状态提示 - 只有真正没有数据且不在加载状态时才显示 -->
+            <div
+              v-if="!chartLoading && (!selectedHotItem || trendData.length === 0)"
+              class="absolute inset-0 flex items-center justify-center bg-[#242424]"
+            >
+              <div class="text-center text-gray-500">
                 <div class="text-4xl mb-3">📈</div>
-                <div class="text-gray-500 text-sm">热度趋势图表 (ECharts 待接入)</div>
-                <div class="text-gray-600 text-xs mt-2">预计展示 24 小时热度走势曲线</div>
+                <div class="text-sm">{{ selectedHotItem ? '暂无趋势数据' : '点击左侧热搜查看趋势' }}</div>
               </div>
             </div>
           </div>
@@ -551,28 +961,27 @@ async function handleRefresh() {
               舆情分析可视化
             </h2>
           </div>
-          <!-- 图表占位区域 -->
-          <div class="flex-1 flex items-center justify-center p-4">
-            <!-- 
-              占位符：使用 Grid 布局展示两个子模块
-              grid-cols-2 两列布局
-            -->
+          <!-- 图表区域 -->
+          <div class="flex-1 p-4 min-h-0">
             <div class="w-full h-full grid grid-cols-2 gap-4">
-              <!-- 左侧：词云图占位 -->
-              <div class="border-2 border-dashed border-gray-600 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
-                <div class="text-center">
-                  <div class="text-3xl mb-2">☁️</div>
-                  <div class="text-gray-500 text-sm">核心词云图</div>
-                  <div class="text-gray-600 text-xs mt-1">(ECharts 待接入)</div>
-                </div>
+              <!-- 左侧：词云图 -->
+              <div class="bg-[#1a1a1a] rounded-lg overflow-hidden">
+                <WordCloud
+                  :data="wordCloudData"
+                  :loading="wordCloudLoading"
+                  title="核心词云"
+                  @word-click="handleWordClick"
+                />
               </div>
-              <!-- 右侧：情感分布占位 -->
-              <div class="border-2 border-dashed border-gray-600 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
-                <div class="text-center">
-                  <div class="text-3xl mb-2">🥧</div>
-                  <div class="text-gray-500 text-sm">情感分布大盘</div>
-                  <div class="text-gray-600 text-xs mt-1">(ECharts 待接入)</div>
-                </div>
+              <!-- 右侧：情感分布 -->
+              <div class="bg-[#1a1a1a] rounded-lg overflow-hidden">
+                <SentimentChart
+                  :data="sentimentData"
+                  :loading="sentimentLoading"
+                  title="情感分布"
+                  type="doughnut"
+                  @slice-click="handleSentimentClick"
+                />
               </div>
             </div>
           </div>
@@ -613,6 +1022,11 @@ async function handleRefresh() {
   background-color: #2a2a2a !important;
 }
 
+/* 当前选中行样式 */
+:deep(.platform-table .el-table__row.current-row > td) {
+  background-color: #3b3b3b !important;
+}
+
 /* 表格单元格样式 */
 :deep(.platform-table td) {
   background-color: transparent;
@@ -648,5 +1062,18 @@ async function handleRefresh() {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #6b7280;
+}
+
+/* 单选按钮组样式调整 */
+:deep(.el-radio-button__inner) {
+  background-color: #1e1e1e;
+  border-color: #4b5563;
+  color: #9ca3af;
+}
+
+:deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
 }
 </style>
