@@ -118,22 +118,23 @@ async function loadData(source) {
     const response = await getCurrentHotSearchApi({ limit: 50 })
     
     // 检查响应数据
-    // 根据接口文档，成功时返回 { code: 200, data: [...] }
-    if (response && response.code === 200 && Array.isArray(response.data)) {
+    // 注意：响应拦截器已经剥离了外层包装，response 直接就是 data 字段
+    // 成功时直接返回热搜数组
+    if (Array.isArray(response)) {
       // 将 API 返回数据映射为组件需要的格式
       // API 字段 -> 组件字段：
       // rankPos -> rank (排名)
       // title -> title (标题)
       // heat -> heat (热度)
       // score -> sentiment (情感分数：1正 0中 -1负 null未分析)
-      hotListData.value = response.data.map(item => ({
+      hotListData.value = response.map(item => ({
         rank: item.rankPos,           // 排名
         title: item.title,            // 标题
         heat: item.heat,              // 热度值
+        typeName: item.typeName,      // 分类
         sentiment: mapScoreToSentiment(item.score),  // 情感倾向转换
         itemId: item.itemId,          // 唯一标识（用于后续查询趋势）
-        url: item.url,                // 链接
-        typeName: item.typeName       // 分类
+        url: item.url                 // 链接
       }))
     } else {
       // 数据格式异常，使用空数组
@@ -267,7 +268,7 @@ function getSentimentText(sentiment) {
 
 /**
  * 获取排名对应的颜色样式
- * 
+ *
  * @param {number} rank - 排名数字
  * @returns {string} CSS 颜色值
  */
@@ -276,6 +277,38 @@ function getRankColor(rank) {
   if (rank === 2) return '#f97316'  // 橙色
   if (rank === 3) return '#eab308'  // 黄色
   return '#6b7280'  // 灰色
+}
+
+/**
+ * 获取类型标签的样式类型
+ *
+ * @param {string} typeName - 类型名称
+ * @returns {string} Element Plus 标签类型
+ */
+function getTypeTagType(typeName) {
+  const typeMap = {
+    '娱乐': 'danger',
+    '财经': 'warning',
+    '科技': 'primary',
+    '体育': 'success',
+    '社会': 'info',
+    '民生': 'info',
+    '国际': '',
+    '国内': ''
+  }
+  return typeMap[typeName] || ''
+}
+
+/**
+ * 打开热搜链接
+ * 在新标签页打开热搜页面
+ *
+ * @param {string} url - 热搜链接
+ */
+function openHotSearchUrl(url) {
+  if (url) {
+    window.open(url, '_blank')
+  }
 }
 
 /**
@@ -400,10 +433,15 @@ async function handleRefresh() {
               <!-- 话题列 -->
               <el-table-column label="话题" min-width="150" show-overflow-tooltip>
                 <template #default="{ row }">
-                  <!-- 话题标题，hover 时变蓝色 -->
-                  <span class="text-gray-200 hover:text-blue-400 cursor-pointer transition">
+                  <!-- 话题标题，点击可跳转 -->
+                  <a
+                    :href="row.url"
+                    target="_blank"
+                    class="text-gray-200 hover:text-blue-400 transition hover:underline"
+                    @click.prevent="openHotSearchUrl(row.url)"
+                  >
                     {{ row.title }}
-                  </span>
+                  </a>
                 </template>
               </el-table-column>
               
@@ -414,6 +452,19 @@ async function handleRefresh() {
                   <span class="text-orange-400 font-medium">
                     {{ formatHeat(row.heat) }}
                   </span>
+                </template>
+              </el-table-column>
+              
+              <!-- 类型列 -->
+              <el-table-column label="类型" width="80" align="center">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="getTypeTagType(row.typeName)"
+                    effect="plain"
+                    size="small"
+                  >
+                    {{ row.typeName || '其他' }}
+                  </el-tag>
                 </template>
               </el-table-column>
               
