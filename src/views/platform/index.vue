@@ -7,13 +7,14 @@
   
   功能概述：
   1. 动态路由监听：根据 URL 参数切换平台数据
-  2. Mock 数据驱动：暂用前端假数据填充 UI
+  2. 真实 API 数据：对接后端热搜接口
   3. 响应式布局：左侧榜单 + 右侧图表占位
   
   技术要点：
   - useRoute: 获取动态路由参数
   - watch: 监听路由变化重新加载数据
   - onMounted: 页面挂载时首次加载
+  - API 数据映射：将后端返回格式转换为组件展示格式
 -->
 
 <script setup>
@@ -35,6 +36,9 @@ import {
   ChatDotRound    // 评论/话题图标
 } from '@element-plus/icons-vue'
 
+// 真实 API 接口
+import { getCurrentHotSearchApi, getHotSearchTrendApi } from '@/api/hotsearch.js'
+
 // ============================================
 // 2. 获取路由实例
 // ============================================
@@ -43,8 +47,14 @@ import {
 const route = useRoute()
 
 // ============================================
-// 3. 定义响应式数据 (Mock 数据)
+// 3. 定义响应式数据
 // ============================================
+
+/**
+ * 加载状态
+ * 用于控制表格 loading 效果
+ */
+const loading = ref(false)
 
 /**
  * 热搜榜单数据
@@ -80,118 +90,89 @@ const platformNames = {
 }
 
 // ============================================
-// 4. 定义 Mock 数据生成方法
-// ============================================
-
-/**
- * 根据平台类型生成对应的 Mock 热搜数据
- * @param {string} source - 平台标识（weibo/zhihu/baidu）
- * @returns {Array} 热搜数据数组
- */
-function generateMockHotList(source) {
-  // 不同平台的 Mock 数据模板
-  const mockDataMap = {
-    weibo: [
-      { rank: 1, title: '某某明星官宣结婚', heat: 5284310, sentiment: 'positive' },
-      { rank: 2, title: '某电影票房破纪录', heat: 4210921, sentiment: 'positive' },
-      { rank: 3, title: '某地突发暴雨预警', heat: 3892000, sentiment: 'neutral' },
-      { rank: 4, title: '某公司回应裁员传闻', heat: 3250100, sentiment: 'negative' },
-      { rank: 5, title: '新发现某种远古生物化石', heat: 2894500, sentiment: 'neutral' },
-      { rank: 6, title: '某球队夺冠游行', heat: 2456000, sentiment: 'positive' },
-      { rank: 7, title: '某品牌产品质量问题曝光', heat: 2103200, sentiment: 'negative' },
-      { rank: 8, title: '某综艺热播引热议', heat: 1890000, sentiment: 'positive' }
-    ],
-    zhihu: [
-      { rank: 1, title: '如何评价某新发布的手机？', heat: 12450, sentiment: 'neutral' },
-      { rank: 2, title: '程序员 35 岁危机真的存在吗？', heat: 9870, sentiment: 'neutral' },
-      { rank: 3, title: '有哪些值得推荐的好书？', heat: 8650, sentiment: 'positive' },
-      { rank: 4, title: '如何看待某政策调整？', heat: 7230, sentiment: 'neutral' },
-      { rank: 5, title: '为什么现在的年轻人不愿意结婚了？', heat: 6890, sentiment: 'negative' },
-      { rank: 6, title: '有哪些高效的健身方法？', heat: 5200, sentiment: 'positive' },
-      { rank: 7, title: '如何评价某电影的剧情？', heat: 4100, sentiment: 'neutral' },
-      { rank: 8, title: '互联网大厂的真实工作体验如何？', heat: 3800, sentiment: 'neutral' }
-    ],
-    baidu: [
-      { rank: 1, title: '今天天气怎么样', heat: 9850000, sentiment: 'neutral' },
-      { rank: 2, title: '某电视剧全集在线观看', heat: 7620000, sentiment: 'neutral' },
-      { rank: 3, title: '健康码最新政策', heat: 6540000, sentiment: 'neutral' },
-      { rank: 4, title: '股票行情今日走势', heat: 5430000, sentiment: 'neutral' },
-      { rank: 5, title: '某游戏新英雄技能介绍', heat: 4320000, sentiment: 'positive' },
-      { rank: 6, title: '火车票预订官网', heat: 3210000, sentiment: 'neutral' },
-      { rank: 7, title: '今日油价调整最新消息', heat: 2800000, sentiment: 'neutral' },
-      { rank: 8, title: '某明星演唱会门票', heat: 2100000, sentiment: 'positive' }
-    ]
-  }
-  
-  // 返回对应平台的数据，如果没有则默认返回微博数据
-  return mockDataMap[source] || mockDataMap.weibo
-}
-
-/**
- * 生成图表占位数据
- * @param {string} source - 平台标识
- * @returns {Object} 图表数据对象
- */
-function generateMockChartData(source) {
-  // 模拟生成 24 小时的趋势数据点
-  const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`)
-  const trendData = hours.map(hour => ({
-    time: hour,
-    value: Math.floor(Math.random() * 1000000) + 500000
-  }))
-  
-  // 模拟词云数据
-  const wordCloudData = [
-    { word: '热搜', weight: 100 },
-    { word: '舆情', weight: 85 },
-    { word: source, weight: 95 },
-    { word: '监控', weight: 72 },
-    { word: '分析', weight: 68 },
-    { word: '数据', weight: 60 },
-    { word: '趋势', weight: 55 },
-    { word: '话题', weight: 50 }
-  ]
-  
-  // 模拟情感分布数据
-  const sentimentData = [
-    { name: '正面', value: Math.floor(Math.random() * 40) + 30 },
-    { name: '负面', value: Math.floor(Math.random() * 30) + 10 },
-    { name: '中性', value: Math.floor(Math.random() * 30) + 20 }
-  ]
-  
-  return {
-    trend: trendData,
-    wordCloud: wordCloudData,
-    sentiment: sentimentData
-  }
-}
-
-// ============================================
-// 5. 数据加载逻辑
+// 4. 数据加载逻辑（对接真实 API）
 // ============================================
 
 /**
  * 加载平台数据的主方法
- * 根据传入的平台 source 参数，更新所有响应式数据
+ * 根据传入的平台 source 参数，调用后端 API 获取真实数据
  * 
  * @param {string} source - 平台标识（从路由参数获取）
  */
-function loadData(source) {
+async function loadData(source) {
   // 打印日志，便于调试时观察数据加载时机
   console.log('正在加载平台数据:', source)
   
   // 更新当前平台显示名称（如果没有匹配则显示原值）
   currentPlatform.value = platformNames[source] || source || '未知平台'
   
-  // 生成并更新热搜榜单数据
-  hotListData.value = generateMockHotList(source)
+  // 开始加载，显示 loading 状态
+  loading.value = true
   
-  // 生成并更新图表数据
-  chartData.value = generateMockChartData(source)
+  try {
+    // ============================================
+    // 调用真实 API：获取实时热搜榜单 Top 50
+    // ============================================
+    // 接口文档: GET /api/v1/hotsearch/current
+    // 返回字段: itemId, rankPos, title, url, heat, score, typeName
+    const response = await getCurrentHotSearchApi({ limit: 50 })
+    
+    // 检查响应数据
+    // 根据接口文档，成功时返回 { code: 200, data: [...] }
+    if (response && response.code === 200 && Array.isArray(response.data)) {
+      // 将 API 返回数据映射为组件需要的格式
+      // API 字段 -> 组件字段：
+      // rankPos -> rank (排名)
+      // title -> title (标题)
+      // heat -> heat (热度)
+      // score -> sentiment (情感分数：1正 0中 -1负 null未分析)
+      hotListData.value = response.data.map(item => ({
+        rank: item.rankPos,           // 排名
+        title: item.title,            // 标题
+        heat: item.heat,              // 热度值
+        sentiment: mapScoreToSentiment(item.score),  // 情感倾向转换
+        itemId: item.itemId,          // 唯一标识（用于后续查询趋势）
+        url: item.url,                // 链接
+        typeName: item.typeName       // 分类
+      }))
+    } else {
+      // 数据格式异常，使用空数组
+      console.warn('API 返回数据格式异常:', response)
+      hotListData.value = []
+    }
+  } catch (error) {
+    // 请求失败处理
+    console.error('获取热搜榜单失败:', error)
+    hotListData.value = []
+    // 可以在这里添加错误提示，例如 ElMessage.error('数据加载失败')
+  } finally {
+    // 无论成功失败，都关闭 loading 状态
+    loading.value = false
+  }
+}
+
+/**
+ * 将 API 返回的 score 转换为组件使用的 sentiment 字符串
+ * 
+ * API 返回的 score 定义（根据接口文档）：
+ * - 1: 正面
+ * - 0: 中性
+ * - -1: 负面
+ * - null: 未分析
+ * 
+ * @param {number|null} score - API 返回的情感分数
+ * @returns {string} 组件使用的情感标识：positive/negative/neutral
+ */
+function mapScoreToSentiment(score) {
+  // 使用严格相等判断，处理 null 和 undefined
+  if (score === 1) return 'positive'
+  if (score === -1) return 'negative'
+  // score 为 0 或 null 或 undefined 都视为中性
+  return 'neutral'
 }
 
 // ============================================
-// 6. 生命周期钩子与路由监听
+// 5. 生命周期钩子与路由监听
 // ============================================
 
 /**
@@ -219,9 +200,6 @@ onMounted(() => {
  * - URL 从 /platform/weibo 变为 /platform/zhihu
  * - route.params.source 的值发生变化
  * - watch 回调被触发，重新加载数据
- * 
- * 立即执行：{ immediate: false }
- * - 不立即执行，因为 onMounted 已经处理了首次加载
  */
 watch(
   // 第一个参数：要监听的响应式数据源（返回 source 参数的函数）
@@ -229,15 +207,15 @@ watch(
   
   // 第二个参数：回调函数，当 source 变化时执行
   // newSource 是变化后的新值，oldSource 是变化前的旧值
-  (newSource, oldSource) => {
+  async (newSource, oldSource) => {
     console.log(`平台切换: ${oldSource} -> ${newSource}`)
     // 调用 loadData 重新加载新平台的数据
-    loadData(newSource)
+    await loadData(newSource)
   }
 )
 
 // ============================================
-// 7. 辅助工具函数
+// 6. 辅助工具函数
 // ============================================
 
 /**
@@ -299,6 +277,16 @@ function getRankColor(rank) {
   if (rank === 3) return '#eab308'  // 黄色
   return '#6b7280'  // 灰色
 }
+
+/**
+ * 刷新数据
+ * 手动触发重新加载当前平台数据
+ */
+async function handleRefresh() {
+  console.log('手动刷新数据')
+  const source = route.params.source
+  await loadData(source)
+}
 </script>
 
 <template>
@@ -314,7 +302,7 @@ function getRankColor(rank) {
     <!-- 
       ============================================
       页面头部区域
-      包含：动态标题 + 平台切换提示
+      包含：动态标题 + 刷新按钮
       ============================================
     -->
     <header class="mb-6 flex items-center justify-between">
@@ -334,9 +322,9 @@ function getRankColor(rank) {
         </p>
       </div>
       
-      <!-- 右侧操作区（预留） -->
+      <!-- 右侧操作区 -->
       <div class="flex gap-2">
-        <el-button type="primary" :icon="TrendCharts">
+        <el-button type="primary" :icon="TrendCharts" @click="handleRefresh" :loading="loading">
           刷新数据
         </el-button>
       </div>
@@ -381,6 +369,7 @@ function getRankColor(rank) {
               :data 绑定响应式数据 hotListData
               stripe 启用斑马纹
               size="small" 紧凑尺寸
+              v-loading 绑定 loading 状态
             -->
             <el-table
               :data="hotListData"
@@ -388,6 +377,9 @@ function getRankColor(rank) {
               size="small"
               class="platform-table"
               row-class-name="hover:bg-[#2a2a2a]"
+              v-loading="loading"
+              element-loading-text="加载中..."
+              element-loading-background="rgba(26, 26, 26, 0.8)"
             >
               <!-- 排名列 -->
               <el-table-column label="排名" width="70" align="center">
