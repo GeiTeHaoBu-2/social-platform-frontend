@@ -28,7 +28,7 @@
 -->
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, provide } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -59,6 +59,9 @@ const router = useRouter()
 // 侧边栏折叠状态
 // ============================================
 const isSidebarCollapsed = ref(false)
+
+// 向子组件提供侧边栏状态
+provide('sidebarCollapsed', isSidebarCollapsed)
 
 // 切换侧边栏状态
 function toggleSidebar() {
