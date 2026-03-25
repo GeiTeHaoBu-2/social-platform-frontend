@@ -28,8 +28,7 @@ import { ref, onMounted, watch, onUnmounted, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   TrendCharts,
-  DataAnalysis,
-  HotWater
+  DataAnalysis
 } from '@element-plus/icons-vue'
 
 // API 接口
@@ -38,6 +37,7 @@ import { getCurrentHotSearchApi, getHotSearchTrendApi, getSentimentStatsApi } fr
 // 组件导入
 import AnalysisConfig from '@/components/analysis/AnalysisConfig.vue'
 import AnalysisPanel from '@/components/analysis/AnalysisPanel.vue'
+import HotSearchTable from '@/components/analysis/HotSearchTable.vue'
 
 // ============================================
 // 2. 路由与状态
@@ -110,7 +110,7 @@ async function loadData(source) {
       
       // 默认选中第一个热搜
       if (hotListData.value.length > 0 && !selectedHotItem.value) {
-        handleRowClick(hotListData.value[0])
+        handleTableRowClick(hotListData.value[0])
       }
     } else {
       console.warn('API 返回数据格式异常:', response)
@@ -196,19 +196,6 @@ async function loadSentimentData() {
 // ============================================
 
 /**
- * 处理表格行点击
- */
-function handleRowClick(row) {
-  selectedHotItem.value = row
-  if (analysisConfig.value.trend) {
-    loadTrendData()
-  }
-  if (analysisConfig.value.sentiment) {
-    loadSentimentData()
-  }
-}
-
-/**
  * 处理配置变化
  */
 function handleConfigChange(newConfig) {
@@ -234,11 +221,16 @@ async function handleRefresh() {
 }
 
 /**
- * 打开热搜链接
+ * 处理表格行点击
+ * @param {Object} row - 行数据
  */
-function openHotSearchUrl(url) {
-  if (url) {
-    window.open(url, '_blank')
+function handleTableRowClick(row) {
+  selectedHotItem.value = row
+  if (analysisConfig.value.trend) {
+    loadTrendData()
+  }
+  if (analysisConfig.value.sentiment) {
+    loadSentimentData()
   }
 }
 
@@ -246,79 +238,24 @@ function openHotSearchUrl(url) {
 // 5. 辅助函数
 // ============================================
 
+/**
+ * 将分数映射为情感类型
+ * @param {number} score - 分数
+ * @returns {string} 情感类型: positive/negative/neutral
+ */
 function mapScoreToSentiment(score) {
   if (score === 1) return 'positive'
   if (score === -1) return 'negative'
   return 'neutral'
 }
 
-function formatHeat(num) {
-  if (num >= 100000000) {
-    return (num / 100000000).toFixed(1) + '亿'
-  }
-  if (num >= 10000) {
-    return (num / 10000).toFixed(1) + '万'
-  }
-  return num.toString()
-}
-
-function getRankColor(rank) {
-  if (rank === 1) return '#ef4444'
-  if (rank === 2) return '#f97316'
-  if (rank === 3) return '#eab308'
-  return '#6b7280'
-}
-
-function getSentimentStyle(sentiment) {
-  const styleMap = {
-    positive: {
-      backgroundColor: 'rgba(34, 197, 94, 0.15)',
-      color: '#4ADE80',
-      border: 'none'
-    },
-    negative: {
-      backgroundColor: 'rgba(239, 68, 68, 0.15)',
-      color: '#F87171',
-      border: 'none'
-    },
-    neutral: {
-      backgroundColor: 'rgba(148, 163, 184, 0.15)',
-      color: '#94A3B8',
-      border: 'none'
-    }
-  }
-  return styleMap[sentiment] || styleMap.neutral
-}
-
-function getSentimentText(sentiment) {
-  const textMap = {
-    positive: '正向',
-    negative: '负向',
-    neutral: '中性'
-  }
-  return textMap[sentiment] || '未知'
-}
-
-function getTypeTagStyle(typeName) {
-  const styleMap = {
-    '娱乐': { backgroundColor: 'rgba(236, 72, 153, 0.15)', color: '#F472B6' },
-    '财经': { backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#FBBF24' },
-    '科技': { backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA' },
-    '体育': { backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34D399' },
-    '社会': { backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#A78BFA' },
-    '民生': { backgroundColor: 'rgba(6, 182, 212, 0.15)', color: '#22D3EE' },
-    '国际': { backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#F87171' },
-    '国内': { backgroundColor: 'rgba(99, 102, 241, 0.15)', color: '#818CF8' },
-    '健康': { backgroundColor: 'rgba(20, 184, 166, 0.15)', color: '#2DD4BF' },
-    '教育': { backgroundColor: 'rgba(132, 204, 22, 0.15)', color: '#A3E635' },
-    '军事': { backgroundColor: 'rgba(120, 113, 108, 0.15)', color: '#A8A29E' },
-    '游戏': { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#4ADE80' },
-    '汽车': { backgroundColor: 'rgba(249, 115, 22, 0.15)', color: '#FB923C' },
-    '房产': { backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#C084FC' }
-  }
-  return styleMap[typeName] || {
-    backgroundColor: 'rgba(148, 163, 184, 0.15)',
-    color: '#94A3B8'
+/**
+ * 打开热搜链接
+ * @param {string} url - 链接地址
+ */
+function openHotSearchUrl(url) {
+  if (url) {
+    window.open(url, '_blank')
   }
 }
 
@@ -394,95 +331,16 @@ watch(timeRange, () => {
     ============================================ -->
     <div class="flex-1 flex gap-6 overflow-hidden min-h-0">
       
-      <!-- 左侧：热搜榜单 - 自适应占据剩余空间 -->
+      <!-- 左侧：热搜榜单 - 使用 HotSearchTable 组件 -->
       <div class="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
-        <!-- 卡片容器 - 去掉内部padding，表格直接占满 -->
-        <div class="bg-[#242424] rounded-xl border border-gray-700 flex flex-col h-full overflow-hidden">
-          <!-- 卡片头部 -->
-          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between shrink-0">
-            <h2 class="font-semibold text-white flex items-center gap-2">
-              <el-icon class="text-red-500">
-                <HotWater />
-              </el-icon>
-              实时热搜榜单
-            </h2>
-            <span class="text-xs text-gray-500">
-              {{ hotListData.length }} 条数据
-            </span>
-          </div>
-          
-          <!-- 表格区域 - 固定表头，横向隐藏溢出 -->
-          <div class="flex-1 overflow-hidden relative">
-            <el-table
-              :data="hotListData"
-              size="small"
-              height="100%"
-              class="platform-table"
-              row-class-name="cursor-pointer"
-              highlight-current-row
-              v-loading="loading"
-              element-loading-text="加载中..."
-              element-loading-background="rgba(26, 26, 26, 0.8)"
-              @row-click="handleRowClick"
-            >
-              <el-table-column label="排名" width="40" align="center">
-                <template #default="{ row }">
-                  <span 
-                    class="font-bold text-base"
-                    :style="{ color: getRankColor(row.rank) }"
-                  >
-                    {{ row.rank }}
-                  </span>
-                </template>
-              </el-table-column>
-              
-              <el-table-column label="话题" min-width="280" show-overflow-tooltip>
-                <template #default="{ row }">
-                  <a
-                    :href="row.url"
-                    target="_blank"
-                    class="text-gray-200 hover:text-blue-400 transition hover:underline"
-                    @click.prevent="openHotSearchUrl(row.url)"
-                  >
-                    {{ row.title }}
-                  </a>
-                </template>
-              </el-table-column>
-              
-              <el-table-column label="热度" width="80" align="right">
-                <template #default="{ row }">
-                  <span class="text-orange-400 font-medium">
-                    {{ formatHeat(row.heat) }}
-                  </span>
-                </template>
-              </el-table-column>
-              
-              <!-- 类型列 - 始终渲染，通过 overflow-x-hidden 隐藏 -->
-              <el-table-column label="类型" width="70" align="center">
-                <template #default="{ row }">
-                  <span
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                    :style="getTypeTagStyle(row.typeName)"
-                  >
-                    {{ row.typeName || '其他' }}
-                  </span>
-                </template>
-              </el-table-column>
-              
-              <!-- 情感列 - 始终渲染，通过 overflow-x-hidden 隐藏 -->
-              <el-table-column label="情感" width="70" align="center">
-                <template #default="{ row }">
-                  <span
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                    :style="getSentimentStyle(row.sentiment)"
-                  >
-                    {{ getSentimentText(row.sentiment) }}
-                  </span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </div>
+        <HotSearchTable
+          v-model="selectedHotItem"
+          selection-mode="single"
+          :data="hotListData"
+          :loading="loading"
+          @row-click="handleTableRowClick"
+          @link-click="openHotSearchUrl"
+        />
       </div>
       
       <!-- 右侧：分析面板 - 固定宽度 650px，不随侧边栏收起而扩展 -->
@@ -508,87 +366,6 @@ watch(timeRange, () => {
 </template>
 
 <style scoped>
-/* 表格样式 - 卡片容器已设置 overflow-hidden 和圆角 */
-:deep(.platform-table) {
-  background-color: transparent;
-  width: 100% !important;
-}
-
-/* 表格主体区域 - 添加自定义滚动条 */
-:deep(.platform-table .el-table__body-wrapper) {
-  background-color: transparent;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(75, 85, 99, 0.3) transparent;
-}
-
-/* Webkit 滚动条样式 */
-:deep(.platform-table .el-table__body-wrapper::-webkit-scrollbar) {
-  width: 4px;
-  height: 0;
-  background-color: transparent;
-}
-
-:deep(.platform-table .el-table__body-wrapper::-webkit-scrollbar-track) {
-  background-color: transparent;
-}
-
-:deep(.platform-table .el-table__body-wrapper::-webkit-scrollbar-thumb) {
-  background-color: rgba(75, 85, 99, 0.3);
-  border-radius: 2px;
-}
-
-:deep(.platform-table .el-table__body-wrapper::-webkit-scrollbar-thumb:hover) {
-  background-color: rgba(107, 114, 128, 0.5);
-}
-
-/* 固定表头样式 */
-:deep(.platform-table .el-table__header-wrapper) {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-/* 表格头部 */
-:deep(.platform-table .el-table__header-wrapper th) {
-  background-color: #1e1e1e !important;
-  color: #9ca3af;
-  font-weight: 600;
-  border-bottom: 1px solid #374151;
-}
-
-/* 表格行 */
-:deep(.platform-table .el-table__row) {
-  background-color: transparent;
-}
-
-:deep(.platform-table .el-table__row:hover > td) {
-  background-color: #2a2a2a !important;
-}
-
-:deep(.platform-table .el-table__row.current-row > td) {
-  background-color: #3b3b3b !important;
-}
-
-:deep(.platform-table td) {
-  background-color: transparent;
-  border-bottom: 1px solid #2a2a2a;
-}
-
-/* 最后一行样式 */
-:deep(.platform-table .el-table__row:last-child td) {
-  border-bottom: none;
-}
-
-/* 最后一行第一个单元格左下角圆角 */
-:deep(.platform-table .el-table__row:last-child td:first-child) {
-  border-bottom-left-radius: 12px;
-}
-
-/* 最后一行最后一个单元格右下角圆角 */
-:deep(.platform-table .el-table__row:last-child td:last-child) {
-  border-bottom-right-radius: 12px;
-}
-
 /* 透明滚动条样式 - 应用于 custom-scrollbar 类 */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
